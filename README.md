@@ -1,4 +1,5 @@
-Ticket Booking API (Concurrency-Safe)
+Locking Strategy & Concurrency Handling
+
 Production-ready Node.js API for high-concurrency ticket booking using MongoDB transactions and Redis RedLock to prevent overselling under heavy load.
 
 Features
@@ -172,5 +173,6 @@ Running in Production (High Level)
 Point MONGODB_URI and REDIS_NODES to your production services.
 
 Run multiple Node.js instances behind a load balancer; all share the same Redis cluster.
+
 
 Use proper monitoring on MongoDB, Redis, and Node.js logs.
