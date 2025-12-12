@@ -1,7 +1,9 @@
 require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const redis = require('redis');
+const crypto = require('crypto');
 const logger = require('./src/config/logger');
 const BookingService = require('./src/services/bookingService');
 const LockService = require('./src/services/lockService');
@@ -36,8 +38,8 @@ app.get('/metrics', (req, res) => {
 app.post('/api/events', async (req, res) => {
   try {
     console.log('📋 Creating event, received body:', req.body);
-    
     const { name, description, sections } = req.body;
+
     if (!name || !sections || !Array.isArray(sections) || sections.length === 0) {
       return res.status(400).json({ error: 'Invalid: need name and sections array' });
     }
@@ -59,11 +61,10 @@ app.post('/api/events', async (req, res) => {
     await event.save();
     logger.info(`✅ Event created: ${event._id}`);
 
-    res.status(201).json({ 
-      success: true, 
-      data: event.toObject() 
+    res.status(201).json({
+      success: true,
+      data: event.toObject(),
     });
-
   } catch (error) {
     logger.error('❌ Event creation failed:', error.message);
     res.status(500).json({ error: error.message });
@@ -73,13 +74,12 @@ app.post('/api/events', async (req, res) => {
 app.post('/bookings', async (req, res) => {
   try {
     console.log('📝 Booking request, received body:', req.body);
-    
     const { eventId, sectionId, qty, userId } = req.body;
 
-    console.log(`  eventId: ${eventId} (type: ${typeof eventId})`);
-    console.log(`  sectionId: ${sectionId} (type: ${typeof sectionId})`);
-    console.log(`  qty: ${qty} (type: ${typeof qty})`);
-    console.log(`  userId: ${userId} (type: ${typeof userId})`);
+    console.log(` eventId: ${eventId} (type: ${typeof eventId})`);
+    console.log(` sectionId: ${sectionId} (type: ${typeof sectionId})`);
+    console.log(` qty: ${qty} (type: ${typeof qty})`);
+    console.log(` userId: ${userId} (type: ${typeof userId})`);
 
     if (!eventId || !sectionId || !qty || !userId) {
       const missing = [];
@@ -140,19 +140,12 @@ app.get('/bookings', async (req, res) => {
     logger.info('✅ MongoDB connected');
 
     logger.info('🔌 Connecting to Redis...');
-    const [host, port] = (process.env.REDIS_NODES || 'localhost:6379').split(':');
-    
     const redisClient = redis.createClient({
-      socket: { 
-        host: host.trim(), 
-        port: parseInt(port) 
-      }
+      socket: { host: 'localhost', port: 6379 }
     });
-
-    redisClient.on('error', (err) => logger.error('Redis Client Error', err));
-    
     await redisClient.connect();
-    logger.info('✅ Redis connected');
+    logger.info('✅ Redis connected (simple lock mode)');
+
 
     lockService = new LockService(redisClient);
     bookingService = new BookingService(lockService);
@@ -162,7 +155,7 @@ app.get('/bookings', async (req, res) => {
       logger.info(`🚀 Server running on http://localhost:${PORT}`);
     });
   } catch (error) {
-    logger.error('💥 Startup failed:', error);
+    logger.error('Startup failed:', error);
     process.exit(1);
   }
 })();

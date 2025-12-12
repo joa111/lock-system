@@ -1,179 +1,149 @@
-# Ticket Booking API (Concurrency-Safe)
+# Ticket Booking API with Concurrency Handling
 
-A production-ready Node.js API for high-concurrency ticket booking using **MongoDB transactions** and **Redis RedLock** to prevent overselling under heavy load.
+A production-ready Node.js API that handles high-concurrency ticket bookings using **MongoDB Transactions** and **Redis Distributed Locking** to strictly prevent overselling.
 
-## Features
+## 🚀 Features
 
-- Prevents overselling seats under concurrent load using distributed locking  
-- Uses MongoDB transactions for strong consistency  
-- Uses Redis + RedLock for distributed locks across instances  
-- Includes concurrency test script (`npm run test:concurrency`)  
-- Health and metrics endpoints for observability  
+- **Concurrency Control**: Prevents overselling even with 100+ concurrent requests.
+- **Distributed Locking**: Uses Redis to lock specific seat sections during booking.
+- **ACID Transactions**: Uses MongoDB multi-document transactions for data integrity.
+- **Scalable Architecture**: Stateless API design ready for horizontal scaling.
+- **Docker Ready**: Includes `docker-compose.yml` for instant local setup.
 
-## Tech Stack
+---
 
-- Node.js + Express  
-- MongoDB (transactions)  
-- Redis (RedLock)  
-- Winston (logging)  
-- Axios (test scripts)
+## 🛠️ Tech Stack
 
-## Getting Started
+- **Node.js** & **Express** - API Server
+- **MongoDB** (Replica Set) - Primary Database with Transaction support
+- **Redis** - Distributed Locking & Caching
+- **Mongoose** - ODM & Schema Validation
+- **Winston** - Structured Logging
+
+---
+
+## ⚡ Quick Start
 
 ### 1. Prerequisites
-- Node.js (LTS recommended)  
-- Docker + Docker Compose  
+- Docker & Docker Compose
+- Node.js (v18+)
 
 ### 2. Clone & Install
-
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
+git clone https://github.com/yourusername/ticket-booking-api.git
+cd ticket-booking-api
 npm install
 ```
 
-### 3. Environment Setup
-
+### 3. Start Infrastructure (MongoDB & Redis)
+This starts a MongoDB Replica Set (required for transactions) and Redis.
 ```bash
-cp .env.example .env
+docker-compose up -d
 ```
 
-Defaults assume:
-- MongoDB → localhost:27017  
-- Redis → localhost:6379  
-
-### 4. Start MongoDB & Redis (Docker)
-
-```bash
-docker compose up -d
+### 4. Configure Environment
+Create a `.env` file:
+```env
+PORT=3000
+MONGODB_URI=mongodb://localhost:27017/ticket-booking?replicaSet=rs0
+REDIS_NODES=localhost:6379
+REDIS_TTL=60000
+LOG_LEVEL=debug
 ```
 
-Containers:
-- ticket-mongo → MongoDB  
-- ticket-redis → Redis  
-
-### 5. Run the API
-
+### 5. Run the Server
 ```bash
 npm run dev
 ```
+Server will start at `http://localhost:3000`
 
-Endpoints:
-- `GET /health`  
-- `GET /metrics`  
+---
 
-## API Overview
+## 🧪 Testing Concurrency
 
-### Create Event
+We included a robust test script to simulate race conditions.
 
-**POST /api/events**
+### Run the Concurrency Test
+This script creates an event with **5 seats** and launches **20 concurrent booking requests**.
+```bash
+npm run test:concurrency
+```
 
-**Body:**
+### Expected Output
+You should see exactly **5 successes** and **15 failures**:
+```
+✅ User 0: SUCCESS
+✅ User 1: SUCCESS
+✅ User 2: SUCCESS
+✅ User 3: SUCCESS
+✅ User 4: SUCCESS
+❌ User 5: FAILED - Only 0 seats available
+...
+============================================================
+📊 RESULTS: 5 successful, 15 failed
+✅ Overselling prevented: YES
+============================================================
+```
+
+---
+
+## 📚 API Endpoints
+
+### 1. Create Event
+`POST /api/events`
 ```json
 {
-  "name": "Test Concert",
+  "name": "Coldplay Concert",
   "sections": [
-    { "name": "VIP", "price": 5000, "capacity": 5 }
+    { "name": "VIP", "price": 5000, "capacity": 100 }
   ]
 }
 ```
 
-**Response:**
+### 2. Book Ticket (Concurrency Safe)
+`POST /bookings`
 ```json
 {
-  "success": true,
-  "data": {
-    "_id": "...",
-    "name": "Test Concert",
-    "sections": [
-      {
-        "_id": "...",
-        "name": "VIP",
-        "price": 5000,
-        "capacity": 5,
-        "remaining": 5
-      }
-    ]
-  }
-}
-```
-
-### Create Booking (Concurrency-Safe)
-
-**POST /bookings**
-
-**Body:**
-```json
-{
-  "eventId": "<event-id>",
-  "sectionId": "<section-id>",
+  "eventId": "65ebd...",
+  "sectionId": "65ebd...",
   "qty": 1,
   "userId": "user-123"
 }
 ```
 
-**Process:**
-- Acquires a Redis RedLock on `booking:<eventId>:<sectionId>`  
-- Runs a MongoDB transaction:  
-  - Decrements remaining seats  
-  - Inserts a Booking document  
-- Ensures remaining never goes below 0  
+### 3. Get Bookings
+`GET /bookings?userId=user-123`
 
-### List Bookings
+---
+
+## 📂 Project Structure
 
 ```
-GET /bookings?eventId=<event-id>&userId=<user-id>&page=1&limit=20
-```
-
-## Concurrency Test
-
-Simulates 20 users booking 1 seat each when only 5 seats exist.
-
-Run:
-
-```bash
-npm run test:concurrency
-```
-
-Expected:
-- 5 successful bookings  
-- 15 failures (lock/validation errors)  
-- No overselling  
-
-## Project Structure
-
-```
-.
-├── server.js                 # API entrypoint
-├── docker-compose.yml        # MongoDB + Redis
-├── .env / .env.example       # Configuration
 ├── src
-│   ├── config
-│   │   ├── database.js       # MongoDB connection
-│   │   ├── redis.js          # Redis + RedLock setup
-│   │   └── logger.js         # Winston logger
-│   ├── models
-│   │   ├── Event.js          # Event & sections schema
-│   │   └── Booking.js        # Booking schema
-│   ├── services
-│   │   ├── lockService.js    # Lock acquisition/release
-│   │   └── bookingService.js # Booking business logic
-│   └── utils
-│       └── metrics.js        # In-memory metrics
-└── tests
-    └── concurrencyTest.js    # High-concurrency test script
+│   ├── config      # DB, Redis, Logger config
+│   ├── models      # Mongoose Models (Event, Booking)
+│   ├── services    # Business Logic (Locking, Booking)
+│   └── utils       # Helper functions
+├── tests
+│   └── concurrencyTest.js  # Race condition simulation
+├── server.js       # App entry point
+└── docker-compose.yml
 ```
 
-## How It Prevents Overselling
+## 🛡️ How It Works 
 
-- Redis RedLock ensures only one instance modifies a section's stock at a time  
-- MongoDB transaction atomically updates seat counts  
-- Lock timeouts prevent inconsistent state under heavy load  
+1. **Request**: User requests 1 seat.
+2. **Lock**: API acquires a **Redis Lock** on the specific `eventId` + `sectionId`.
+   - If locked, other requests wait (spin-lock) or fail safely.
+3. **Transaction**: Starts a **MongoDB Transaction**.
+   - Reads current remaining seats.
+   - Checks if `remaining >= qty`.
+   - Decrements `remaining`.
+   - Inserts `Booking` record.
+4. **Commit**: Commits the transaction.
+5. **Unlock**: Releases the Redis lock.
 
-## Running in Production
+This ensures that **no two requests** can modify the seat count at the exact same microsecond.
 
-- Set `MONGODB_URI` and `REDIS_NODES` to production values  
-- Run multiple Node.js instances behind a load balancer  
-- All instances must share the same Redis cluster  
-- Monitor MongoDB, Redis, and application logs  
+---
 

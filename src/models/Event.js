@@ -18,7 +18,7 @@ const eventSchema = new mongoose.Schema({
 
 eventSchema.index({ status: 1, createdAt: -1 });
 
-// Make sure sections array is properly serialized
+
 eventSchema.set('toJSON', { virtuals: true });
 
 module.exports = mongoose.model('Event', eventSchema);

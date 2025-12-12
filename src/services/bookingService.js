@@ -8,10 +8,8 @@ class BookingService {
   }
 
   async createBooking(eventId, sectionId, qty, userId) {
-    // ✅ FIX: Acquire lock FIRST, then start transaction
     return await this.lockService.withLock(eventId, sectionId, async (lockData) => {
       const session = await Event.startSession();
-      
       try {
         session.startTransaction({
           readConcern: { level: 'snapshot' },
@@ -19,12 +17,11 @@ class BookingService {
         });
 
         const event = await Event.findById(eventId).session(session);
-        
         if (!event) throw new Error('Event not found');
-        
+
         const section = event.sections.id(sectionId);
         if (!section) throw new Error('Section not found');
-        
+
         if (section.remaining < qty) {
           throw new Error(`Only ${section.remaining} seats available`);
         }
@@ -42,15 +39,13 @@ class BookingService {
         });
 
         await booking.save({ session });
-        
         await session.commitTransaction();
-        
-        logger.info(`✅ Booking confirmed: ${booking._id}`);
 
-        return { 
-          success: true, 
-          booking, 
-          lockAcquisitionTime: lockData.acquisitionTime 
+        logger.info(`✅ Booking confirmed: ${booking._id}`);
+        return {
+          success: true,
+          booking,
+          lockAcquisitionTime: lockData.acquisitionTime,
         };
       } catch (error) {
         await session.abortTransaction();
@@ -65,7 +60,6 @@ class BookingService {
   async getBookings(filters = {}, page = 1, limit = 20) {
     const skip = (page - 1) * limit;
     const query = { status: filters.status || 'confirmed' };
-
     if (filters.eventId) query.eventId = filters.eventId;
     if (filters.userId) query.userId = filters.userId;
 
@@ -76,7 +70,6 @@ class BookingService {
       .lean();
 
     const total = await Booking.countDocuments(query);
-
     return {
       bookings,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
