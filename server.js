@@ -11,11 +11,10 @@ const metrics = require('./src/utils/metrics');
 
 const app = express();
 
-// ✅ CRITICAL: JSON parser FIRST, before all routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging middleware
+
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}`);
   next();
@@ -60,7 +59,6 @@ app.post('/api/events', async (req, res) => {
     await event.save();
     logger.info(`✅ Event created: ${event._id}`);
 
-    // Just return the event as-is (Mongoose handles serialization)
     res.status(201).json({ 
       success: true, 
       data: event.toObject() 
@@ -78,13 +76,12 @@ app.post('/bookings', async (req, res) => {
     
     const { eventId, sectionId, qty, userId } = req.body;
 
-    // Debug: log each field
     console.log(`  eventId: ${eventId} (type: ${typeof eventId})`);
     console.log(`  sectionId: ${sectionId} (type: ${typeof sectionId})`);
     console.log(`  qty: ${qty} (type: ${typeof qty})`);
     console.log(`  userId: ${userId} (type: ${typeof userId})`);
 
-    // Validate
+
     if (!eventId || !sectionId || !qty || !userId) {
       const missing = [];
       if (!eventId) missing.push('eventId');
@@ -131,7 +128,6 @@ app.get('/bookings', async (req, res) => {
   }
 });
 
-// ==================== STARTUP ====================
 
 (async () => {
   try {
@@ -140,6 +136,8 @@ app.get('/bookings', async (req, res) => {
       maxPoolSize: 50,
       minPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
+      w: 'majority',  
+      wtimeoutMS: 5000  
     });
     logger.info('✅ MongoDB connected');
 
