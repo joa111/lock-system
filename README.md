@@ -1,87 +1,85 @@
-Locking Strategy & Concurrency Handling
+# Ticket Booking API (Concurrency-Safe)
 
-Ticket Booking API (Concurrency-Safe)
-Production-ready Node.js API for high-concurrency ticket booking using MongoDB transactions and Redis RedLock to prevent overselling under heavy load.
+A production-ready Node.js API for high-concurrency ticket booking using **MongoDB transactions** and **Redis RedLock** to prevent overselling under heavy load.
 
-Features
-Prevents overselling seats under concurrent load using distributed locking.
+## Features
 
-Uses MongoDB for strong consistency with multi-document transactions.
+- Prevents overselling seats under concurrent load using distributed locking  
+- Uses MongoDB transactions for strong consistency  
+- Uses Redis + RedLock for distributed locks across instances  
+- Includes concurrency test script (`npm run test:concurrency`)  
+- Health and metrics endpoints for observability  
 
-Uses Redis + RedLock for distributed locks across instances.
+## Tech Stack
 
-Includes concurrency test script (npm run test:concurrency).
+- Node.js + Express  
+- MongoDB (transactions)  
+- Redis (RedLock)  
+- Winston (logging)  
+- Axios (test scripts)
 
-Health and metrics endpoints for basic observability.
+## Getting Started
 
-Tech Stack
-Node.js + Express
+### 1. Prerequisites
+- Node.js (LTS recommended)  
+- Docker + Docker Compose  
 
-MongoDB (transactions)
+### 2. Clone & Install
 
-Redis (RedLock-based distributed locking)
-
-Winston (logging)
-
-Axios (for test scripts)
-
-Getting Started
-1. Prerequisites
-Node.js (LTS recommended)
-
-Docker + Docker Compose
-
-2. Clone & Install
-bash
-git clone https://github.com/joa111/lock-system.git
-
+```bash
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
 npm install
-3. Environment Setup
-Create .env from the example:
+```
 
-bash
+### 3. Environment Setup
+
+```bash
 cp .env.example .env
-Default .env values assume:
+```
 
-MongoDB on localhost:27017 (via Docker)
+Defaults assume:
+- MongoDB → localhost:27017  
+- Redis → localhost:6379  
 
-Redis on localhost:6379 (via Docker)
+### 4. Start MongoDB & Redis (Docker)
 
-4. Start MongoDB & Redis (Docker)
-bash
+```bash
 docker compose up -d
+```
+
 Containers:
+- ticket-mongo → MongoDB  
+- ticket-redis → Redis  
 
-ticket-mongo → MongoDB
+### 5. Run the API
 
-ticket-redis → Redis
-
-5. Run the API
-bash
+```bash
 npm run dev
+```
+
 Endpoints:
+- `GET /health`  
+- `GET /metrics`  
 
-GET /health – basic health check
+## API Overview
 
-GET /metrics – simple in-memory metrics
+### Create Event
 
-API Overview
-Create Event
-text
-POST /api/events
-Content-Type: application/json
-Body:
+**POST /api/events**
 
-json
+**Body:**
+```json
 {
   "name": "Test Concert",
   "sections": [
     { "name": "VIP", "price": 5000, "capacity": 5 }
   ]
 }
-Response (simplified):
+```
 
-json
+**Response:**
+```json
 {
   "success": true,
   "data": {
@@ -98,51 +96,53 @@ json
     ]
   }
 }
-Create Booking (Concurrency-Safe)
-text
-POST /bookings
-Content-Type: application/json
-Body:
+```
 
-json
+### Create Booking (Concurrency-Safe)
+
+**POST /bookings**
+
+**Body:**
+```json
 {
   "eventId": "<event-id>",
   "sectionId": "<section-id>",
   "qty": 1,
   "userId": "user-123"
 }
-Behavior:
+```
 
-Acquires a Redis RedLock on booking:<eventId>:<sectionId>.
+**Process:**
+- Acquires a Redis RedLock on `booking:<eventId>:<sectionId>`  
+- Runs a MongoDB transaction:  
+  - Decrements remaining seats  
+  - Inserts a Booking document  
+- Ensures remaining never goes below 0  
 
-Runs a MongoDB transaction to:
+### List Bookings
 
-Decrement sections[n].remaining.
-
-Insert a Booking document.
-
-Ensures remaining never goes below 0.
-
-List Bookings
-text
+```
 GET /bookings?eventId=<event-id>&userId=<user-id>&page=1&limit=20
-Concurrency Test
-A test script simulates 20 concurrent users trying to book 1 seat each when only 5 seats are available.
+```
+
+## Concurrency Test
+
+Simulates 20 users booking 1 seat each when only 5 seats exist.
 
 Run:
 
-bash
+```bash
 npm run test:concurrency
-Expected behavior:
+```
 
-Exactly 5 bookings succeed.
+Expected:
+- 5 successful bookings  
+- 15 failures (lock/validation errors)  
+- No overselling  
 
-15 fail with validation/lock errors.
+## Project Structure
 
-No overselling (total confirmed bookings ≤ capacity, remaining ≥ 0).
-
-Project Structure
-text
+```
 .
 ├── server.js                 # API entrypoint
 ├── docker-compose.yml        # MongoDB + Redis
@@ -162,16 +162,18 @@ text
 │       └── metrics.js        # In-memory metrics
 └── tests
     └── concurrencyTest.js    # High-concurrency test script
-How It Prevents Overselling
-Redis RedLock ensures only one instance holds the lock for a given eventId + sectionId at a time.
+```
 
-MongoDB transaction validates and updates seat counts atomically.
+## How It Prevents Overselling
 
-If a lock cannot be acquired within the configured TTL, the booking fails with a lock timeout instead of risking inconsistent state.
+- Redis RedLock ensures only one instance modifies a section's stock at a time  
+- MongoDB transaction atomically updates seat counts  
+- Lock timeouts prevent inconsistent state under heavy load  
 
-Running in Production (High Level)
-Point MONGODB_URI and REDIS_NODES to your production services.
+## Running in Production
 
-Run multiple Node.js instances behind a load balancer; all share the same Redis cluster.
+- Set `MONGODB_URI` and `REDIS_NODES` to production values  
+- Run multiple Node.js instances behind a load balancer  
+- All instances must share the same Redis cluster  
+- Monitor MongoDB, Redis, and application logs  
 
-Use proper monitoring on MongoDB, Redis, and Node.js logs.

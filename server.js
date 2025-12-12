@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const redis = require('redis');
-const Redlock = require('redlock').default;
 const logger = require('./src/config/logger');
 const BookingService = require('./src/services/bookingService');
 const LockService = require('./src/services/lockService');
@@ -11,10 +10,11 @@ const metrics = require('./src/utils/metrics');
 
 const app = express();
 
+// ✅ CRITICAL: JSON parser FIRST, before all routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-
+// Logging middleware
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path} - Body: ${JSON.stringify(req.body)}`);
   next();
@@ -81,7 +81,6 @@ app.post('/bookings', async (req, res) => {
     console.log(`  qty: ${qty} (type: ${typeof qty})`);
     console.log(`  userId: ${userId} (type: ${typeof userId})`);
 
-
     if (!eventId || !sectionId || !qty || !userId) {
       const missing = [];
       if (!eventId) missing.push('eventId');
@@ -128,6 +127,7 @@ app.get('/bookings', async (req, res) => {
   }
 });
 
+// ==================== STARTUP ====================
 
 (async () => {
   try {
@@ -136,38 +136,25 @@ app.get('/bookings', async (req, res) => {
       maxPoolSize: 50,
       minPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
-      w: 'majority',  
-      wtimeoutMS: 5000  
     });
     logger.info('✅ MongoDB connected');
 
     logger.info('🔌 Connecting to Redis...');
-    const redisNodes = (process.env.REDIS_NODES || 'localhost:6379')
-      .split(',')
-      .map(node => {
-        const [host, port] = node.trim().split(':');
-        return { host, port: parseInt(port) };
-      });
+    const [host, port] = (process.env.REDIS_NODES || 'localhost:6379').split(':');
+    
+    const redisClient = redis.createClient({
+      socket: { 
+        host: host.trim(), 
+        port: parseInt(port) 
+      }
+    });
 
-      const clients = await Promise.all(
-        redisNodes.map(n =>
-          redis
-            .createClient({ socket: { host: n.host, port: n.port } })
-            .connect()
-        )
-      );
-      logger.info(`✅ Redis connected to ${clients.length} node(s)`);
-  
-  
-      const redlock = new Redlock(clients, {
-        driftFactor: 0.01,
-        retryCount: 0,
-        retryDelay: 200,
-        retryJitter: 200,
-        automaticExtensionThreshold: 500, // Add this?
-      });
+    redisClient.on('error', (err) => logger.error('Redis Client Error', err));
+    
+    await redisClient.connect();
+    logger.info('✅ Redis connected');
 
-    lockService = new LockService(redlock);
+    lockService = new LockService(redisClient);
     bookingService = new BookingService(lockService);
 
     const PORT = process.env.PORT || 3000;

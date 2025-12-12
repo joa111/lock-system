@@ -8,14 +8,16 @@ class BookingService {
   }
 
   async createBooking(eventId, sectionId, qty, userId) {
-    const session = await Event.startSession();
-    session.startTransaction({
-      readConcern: { level: 'snapshot' },
-      writeConcern: { w: 'majority' },
-    });
+    // ✅ FIX: Acquire lock FIRST, then start transaction
+    return await this.lockService.withLock(eventId, sectionId, async (lockData) => {
+      const session = await Event.startSession();
+      
+      try {
+        session.startTransaction({
+          readConcern: { level: 'snapshot' },
+          writeConcern: { w: 'majority' },
+        });
 
-    try {
-      return await this.lockService.withLock(eventId, sectionId, async (lockData) => {
         const event = await Event.findById(eventId).session(session);
         
         if (!event) throw new Error('Event not found');
@@ -40,18 +42,24 @@ class BookingService {
         });
 
         await booking.save({ session });
+        
+        await session.commitTransaction();
+        
         logger.info(`✅ Booking confirmed: ${booking._id}`);
 
-        await session.commitTransaction(); 
-
-        return { success: true, booking, lockAcquisitionTime: lockData.acquisitionTime };
-      });
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      await session.endSession();
-    }
+        return { 
+          success: true, 
+          booking, 
+          lockAcquisitionTime: lockData.acquisitionTime 
+        };
+      } catch (error) {
+        await session.abortTransaction();
+        logger.error(`❌ Transaction aborted: ${error.message}`);
+        throw error;
+      } finally {
+        await session.endSession();
+      }
+    });
   }
 
   async getBookings(filters = {}, page = 1, limit = 20) {

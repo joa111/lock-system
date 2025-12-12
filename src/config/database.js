@@ -9,6 +9,8 @@ class DatabaseConnection {
         minPoolSize: 10,
         socketTimeoutMS: parseInt(process.env.MONGODB_TIMEOUT) || 5000,
         serverSelectionTimeoutMS: 5000,
+        w: 'majority', 
+        wtimeoutMS: 5000,
         retryWrites: process.env.MONGODB_RETRY_WRITES === 'true',
         maxIdleTimeMS: 30000,
       };

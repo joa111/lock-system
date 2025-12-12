@@ -1,12 +1,15 @@
 const logger = require('../config/logger');
+const { randomBytes } = require('crypto');
 
 class LockService {
-  constructor(redlock) {
-    this.redlock = redlock;
+  constructor(redisClient) {
+    // Now expects a single Redis client, not Redlock
+    this.redis = redisClient;
   }
 
   async acquireLock(eventId, sectionId, options = {}) {
     const lockKey = `booking:${eventId}:${sectionId}`;
+    const lockValue = randomBytes(16).toString('hex');
     const ttl = options.ttl || parseInt(process.env.REDIS_TTL) || 5000;
     const maxRetries = options.maxRetries || 50;
 
@@ -15,17 +18,41 @@ class LockService {
 
     while (attempt < maxRetries) {
       try {
-        // Redlock v5 uses .acquire() and expects an array of keys
-        const lock = await this.redlock.acquire([lockKey], ttl);
+        // Try to acquire lock using SET NX (set if not exists)
+        const result = await this.redis.set(lockKey, lockValue, {
+          NX: true,  // Only set if key doesn't exist
+          PX: ttl,   // Expire after ttl milliseconds
+        });
+
+        if (result === 'OK') {
+          const acquisitionTime = Date.now() - startTime;
+          logger.debug(`Lock acquired on attempt ${attempt + 1} in ${acquisitionTime}ms`);
+          
+          return { 
+            lockKey, 
+            lockValue, 
+            acquisitionTime 
+          };
+        }
+
+        // Lock exists, retry with backoff
+        attempt++;
+        if (attempt >= maxRetries) {
+          logger.warn(`Lock timeout for ${lockKey} after ${attempt} attempts`);
+          throw new Error('Lock acquisition timeout');
+        }
         
-        const acquisitionTime = Date.now() - startTime;
+        logger.debug(`Lock attempt ${attempt} failed: key already locked`);
         
-        // ✅ FIX: Log success message instead of referencing non-existent error
-        logger.debug(`Lock acquired on attempt ${attempt + 1} in ${acquisitionTime}ms`);
+        // Exponential backoff with jitter
+        const backoff = Math.min(1000, 50 * Math.pow(2, attempt)) + Math.random() * 100;
+        await new Promise(r => setTimeout(r, backoff));
         
-        // v5 lock object structure
-        return { lock, lockId: lock.value, acquisitionTime };
       } catch (error) {
+        if (error.message === 'Lock acquisition timeout') {
+          throw error;
+        }
+        
         attempt++;
         logger.debug(`Lock attempt ${attempt} failed: ${error.message}`);
         
@@ -40,9 +67,26 @@ class LockService {
     }
   }
 
-  async releaseLock(lock) {
+  async releaseLock(lockData) {
+    if (!lockData) return;
+    
+    const { lockKey, lockValue } = lockData;
+    
     try {
-      await lock.release();
+      // Use Lua script to ensure we only delete our own lock
+      const script = `
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+          return redis.call("del", KEYS[1])
+        else
+          return 0
+        end
+      `;
+      
+      await this.redis.eval(script, {
+        keys: [lockKey],
+        arguments: [lockValue],
+      });
+      
       logger.debug('Lock released');
     } catch (error) {
       logger.warn('Error releasing lock (might be expired):', error.message);
@@ -50,13 +94,12 @@ class LockService {
   }
 
   async withLock(eventId, sectionId, callback, options = {}) {
-    let lock;
+    let lockData;
     try {
-      const lockData = await this.acquireLock(eventId, sectionId, options);
-      lock = lockData.lock;
+      lockData = await this.acquireLock(eventId, sectionId, options);
       return await callback(lockData);
     } finally {
-      if (lock) await this.releaseLock(lock);
+      if (lockData) await this.releaseLock(lockData);
     }
   }
 }
